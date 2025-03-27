@@ -1,0 +1,231 @@
+---
+title: "Panel data"
+author: "Lukas Jespersen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Test af probit model (random data)
+
+```{r}
+# Indlæs nødvendige pakker
+library(MASS)
+
+# Simuleret datasæt
+set.seed(123)
+n <- 1000
+x1 <- rnorm(n)
+x2 <- rnorm(n)
+latent <- 0.5 * x1 - 0.3 * x2 + rnorm(n)  # Latent variabel
+y <- ifelse(latent > 0, 1, 0)  # Binær afhængig variabel
+
+# Opret data frame
+data <- data.frame(y, x1, x2)
+
+# Kør Probit model
+probit_model <- glm(y ~ x1 + x2, family = binomial(link = "probit"), data = data)
+
+# Se resultaterne
+summary(probit_model)
+```
+
+
+```{r}
+# Indlæs nødvendige pakker
+library(ggplot2)
+
+# Forudsig sandsynligheder fra Probit-modellen
+data$predicted_prob <- predict(probit_model, type = "response")
+
+# Lav et scatter plot med en glat kurve
+ggplot(data, aes(x = x1, y = predicted_prob)) +
+  geom_point(alpha = 0.3) +  # Plot punkterne med lav transparens
+  geom_smooth(method = "loess", color = "blue", se = FALSE) +  # Glat kurve
+  labs(title = "Probit Model: Sandsynlighed vs. x1",
+       x = "x1",
+       y = "Estimeret sandsynlighed for y = 1") +
+  theme_minimal()
+```
+
+
+```{r}
+# Opret en tabel med de estimerede værdier
+results_table <- data.frame(
+  Observed_Y = data$y,
+  X1 = data$x1,
+  X2 = data$x2,
+  Predicted_Probability = data$predicted_prob,
+  Predicted_Y = ifelse(data$predicted_prob > 0.5, 1, 0)  # Klassificér y baseret på 0.5 cutoff
+)
+
+# Vis de første 10 rækker af tabellen
+head(results_table, 10)
+```
+
+
+
+## Probit model estimering
+
+
+Testen er foretaget uden følgende lande, da der manglede observationer på disse:
+Cyprus, Bulgaria, Croatia, Czech, Estonia, Latvia, Lithuania, Malta, Poland, Romania, Slovakia, Slovenia, China
+
+```{r}
+# Indlæsning af data
+
+# Pakker
+library(readxl)
+library(tidyverse)
+
+# Indlæs data fra Excel
+short_term <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield.xlsx", sheet = "Short-term")
+long_term <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield.xlsx", sheet = "Long-term")
+gdp <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield.xlsx", sheet = "GDP")
+
+# Konverter wide til long format
+short_term_long <- short_term %>%
+  pivot_longer(-Time, names_to = "country", values_to = "rate_3m")
+
+long_term_long <- long_term %>%
+  pivot_longer(-Time, names_to = "country", values_to = "rate_10y")
+
+gdp_long <- gdp %>%
+  pivot_longer(-Time, names_to = "country", values_to = "gdp_growth")
+
+# Merge de tre datasæt sammen
+df <- short_term_long %>%
+  left_join(long_term_long, by = c("Time", "country")) %>%
+  left_join(gdp_long, by = c("Time", "country")) %>%
+  rename(year = Time) %>%
+  arrange(country, year) %>%
+  mutate(term_spread = rate_10y - rate_3m,
+         recession = ifelse(gdp_growth < 0 & lag(gdp_growth, default = 1) < 0, 1, 0))
+
+# Se de første rækker
+head(df)
+```
+
+```{r}
+#Definerer variable
+
+y <-  df$recession
+x1 <- df$term_spread
+
+```
+
+
+
+
+```{r}
+# Estimering af modellen
+probit_model <- glm(y ~ x1 , family = binomial(link = "probit"), data = df)
+summary(probit_model)
+
+```
+
+
+```{r}
+# Tjek af data
+colSums(is.na(df))  # Tjek hvor mange NA'er der er i hver kolonne
+
+df$term_spread
+```
+
+
+```{r}
+# Forudsig sandsynligheder
+
+df$predicted_prob <- predict(probit_model, type = "response")
+
+# Tabel med resultater
+
+results_table <- data.frame(
+  Observed_Y = df$recession,
+  X1 = df$term_spread,
+  Predicted_Probability = df$predicted_prob,
+  Predicted_Y = ifelse(df$predicted_prob > 0.3, 1, 0)
+)
+
+results_table
+
+results_table$Predicted_Y
+
+```
+
+```{r}
+# Gør det pænt forhelvede
+
+results_table <- data.frame(
+  Country = df$country,  # Landekode eller navn
+  Observed_Y = df$recession,
+  X1 = df$term_spread,
+  Predicted_Probability = df$predicted_prob,
+  Predicted_Y = ifelse(df$predicted_prob > 0.3, 1, 0)
+)
+
+# Se de første rækker grupperet efter land
+head(results_table)
+
+results_table
+```
+
+```{r}
+# Gennemsnitlige forudsigelse pr land
+
+aggregate(Predicted_Probability ~ Country, data = results_table, FUN = mean)
+```
+
+```{r}
+#Plot af sandsynlighederne for de forskellige lande
+
+library(ggplot2)
+
+ggplot(results_table, aes(x = Country, y = Predicted_Probability)) +
+  geom_boxplot() +  # Boxplot for at se variationen i forudsigelserne per land
+  labs(title = "Probit Model: Forudsigelser per Land",
+       x = "Land",
+       y = "Estimeret sandsynlighed for y = 1") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Roter landekoder for bedre læsbarhed
+```
+
+
+```{r}
+library(ggplot2)
+
+ggplot(results_table, aes(x = df$year, y = Predicted_Probability, color = Country, group = Country)) +
+  geom_line() +  # Linjer for hvert land
+  geom_point(size = 1) +  # Punkter for at markere observationer
+  labs(title = "Estimeret Sandsynlighed pr. Land over Tid",
+       x = "År",
+       y = "Estimeret Sandsynlighed for y = 1") +
+  theme_minimal() +
+  theme(legend.position = "bottom")  # Flyt legenden for bedre visning
+```
+
+```{r}
+# Filtre af lande
+
+results_table
+
+bestemte_countries <- unique(results_table$Country)[1:10]  # Her valgt de første 10 lande
+results_filtered <- results_table[results_table$Country %in% bestemte_countries, ]
+
+ggplot(results_filtered, aes(x = df$year[1:1000], y = Predicted_Probability, color = Country, group = Country)) +
+  geom_line() +
+  geom_point(size = 1) +
+  labs(title = "Estimeret Sandsynlighed for Udvalgte Lande",
+       x = "År",
+       y = "Estimeret Sandsynlighed for y = 1") +
+  theme_minimal()
+
+# OBS
+# Kommandoen df$year[1:1000], da dette er antallet af observationer der findes ved at tage 'length' af 'results_filtered$'
+
+```
+
