@@ -1,0 +1,63 @@
+---
+title: "Projekt 8.semester"
+author: "Tore Nysom"
+date: "2025-03-28"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    keep_tex: true
+    extra_dependencies: ["pdflscape"]
+---
+
+```{r}
+# Pakker (installer hvis du ikke allerede har dem)
+library(readxl)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# Indlæs data (husk at rette stien hvis du bruger anden placering)
+data_bnp <- read_excel("/Users/torenysom/Desktop/UNI/Projekt div/Yield.xlsx", sheet = "Short-term")
+data_gov10 <- read_excel("/Users/torenysom/Desktop/UNI/Projekt div/Yield.xlsx", sheet = "Long-term")
+data_gov3 <- read_excel("/Users/torenysom/Desktop/UNI/Projekt div/Yield.xlsx", sheet = "GDP")
+data_rate <- read_excel("/Users/torenysom/Desktop/UNI/Projekt div/Yield.xlsx", sheet = "MPRate")
+data_cpi <- read_excel("/Users/torenysom/Desktop/UNI/Projekt div/Yield.xlsx", sheet = "Inflation")
+```
+
+```{r}
+# Funktion til tabel for ét land (inkl. inflation)
+lav_land_tabel <- function(landnavn) {
+  df <- data.frame(
+    Variable = c("BNP Growth", "10Y Gov Bond", "3Y Gov Bond", "Monetary Policy Rate", "Inflation"),
+    Mean = c(mean(data_bnp[[landnavn]], na.rm = TRUE),
+             mean(data_gov10[[landnavn]], na.rm = TRUE),
+             mean(data_gov3[[landnavn]], na.rm = TRUE),
+             mean(data_rate[[landnavn]], na.rm = TRUE),
+             mean(data_cpi[[landnavn]], na.rm = TRUE)),
+    Median = c(median(data_bnp[[landnavn]], na.rm = TRUE),
+               median(data_gov10[[landnavn]], na.rm = TRUE),
+               median(data_gov3[[landnavn]], na.rm = TRUE),
+               median(data_rate[[landnavn]], na.rm = TRUE),
+               median(data_cpi[[landnavn]], na.rm = TRUE)),
+    SD = c(sd(data_bnp[[landnavn]], na.rm = TRUE),
+           sd(data_gov10[[landnavn]], na.rm = TRUE),
+           sd(data_gov3[[landnavn]], na.rm = TRUE),
+           sd(data_rate[[landnavn]], na.rm = TRUE),
+           sd(data_cpi[[landnavn]], na.rm = TRUE))
+  )
+  
+  df %>%
+    kable("latex", booktabs = TRUE, digits = 2,
+          caption = paste("Descriptive statistics for", landnavn)) %>%
+    kable_styling(latex_options = c("striped"))
+}
+```
+```{r, results='asis'}
+lande <- colnames(data_bnp)
+
+for (land in lande) {
+  cat("\n\n")
+  print(lav_land_tabel(land))
+}
+```
+
