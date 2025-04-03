@@ -1,0 +1,176 @@
+---
+title: "Probit_2"
+author: "Lukas Jespersen"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+\newpage
+
+
+
+# Probit estimering af modellen med alle lande
+
+```{r}
+
+# Pakker
+library(readxl)
+library(tidyverse)
+
+# Indlæs data fra Excel
+short_term <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield_2.xlsx", sheet = "Short-term")
+long_term <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield_2.xlsx", sheet = "Long-term")
+gdp <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield_2.xlsx", sheet = "GDP")
+mp_rate <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield_2.xlsx", sheet = "MPRate")
+cpi <- read_excel("/Users/lukasjespersen/Desktop/Kandidat/8.semester/Projekt/data/Yield_2.xlsx", sheet = "Inflation")
+
+
+# Konverter wide til long format
+short_term_long <- short_term %>%
+  pivot_longer(-Time, names_to = "country", values_to = "rate_3m")
+
+long_term_long <- long_term %>%
+  pivot_longer(-Time, names_to = "country", values_to = "rate_10y")
+
+gdp_long <- gdp %>%
+  pivot_longer(-Time, names_to = "country", values_to = "gdp_growth")
+
+mp_rate_long <- mp_rate %>%
+  pivot_longer(-Time, names_to = "country", values_to = "mp_rate")
+
+cpi_long <- cpi %>%
+  pivot_longer(-Time, names_to = "country", values_to = "cpi")
+
+# Merge de fem datasæt sammen
+df <- short_term_long %>%
+  left_join(long_term_long, by = c("Time", "country")) %>%
+  left_join(gdp_long, by = c("Time", "country")) %>%
+  left_join(mp_rate_long, by = c("Time", "country")) %>%
+  left_join(cpi_long, by = c("Time", "country")) %>%
+  rename(year = Time) %>%
+  arrange(country, year) %>%
+  mutate(term_spread = rate_10y - rate_3m,
+       recession = ifelse(gdp_growth < 0 & lag(gdp_growth, default = 1) < 0, 1, 0))
+
+# Se de første rækker
+head(df)
+```
+
+# Estimering
+
+```{r, warning=FALSE}
+# Load necessary libraries
+library(dplyr)
+
+# Konverter recession til en faktorvariabel (binær)
+df$recession <- as.factor(df$recession)
+
+# Sorter data efter country og year
+df <- df %>%
+  arrange(country, year) %>%
+  group_by(country) %>%
+  mutate(term_spread_lag1 = lag(term_spread, 1)) %>% # Opret lagged variabel
+  ungroup()
+
+# Funktion til at estimere en probit-model for et enkelt land
+run_probit <- function(df) {
+  # Fjern rækker med NA i term_spread_lag4 (da de første 4 observationer for hvert land vil være NA)
+  df <- df %>% filter(!is.na(term_spread_lag1))
+  
+  model <- glm(recession ~ term_spread + term_spread_lag1 + mp_rate, 
+               data = df, 
+               family = binomial(link = "probit"))
+  return(summary(model))
+}
+
+# Anvend funktionen på hver gruppe af lande
+results <- df %>%
+  group_by(country) %>%
+  group_split() %>%
+  lapply(run_probit)
+
+# Navngiv resultaterne efter land
+names(results) <- unique(df$country)
+
+# Udskriv resultaterne for hvert land
+head(results)
+```
+
+
+
+```{r, warning=FALSE}
+# Load necessary libraries
+library(dplyr)
+
+# Konverter recession til en faktorvariabel (binær)
+df$recession <- as.factor(df$recession)
+
+# Sorter data efter country og year
+df <- df %>%
+  arrange(country, year) %>%
+  group_by(country) %>%
+  mutate(term_spread_lag1 = lag(term_spread, 1)) %>% # Opret lagged variabel
+  ungroup()
+
+# Funktion til at estimere en probit-model for et enkelt land og udregne de predikerede sandsynligheder
+run_probit <- function(df) {
+  # Fjern rækker med NA i term_spread_lag1 (da de første observationer for hvert land vil være NA)
+  df_filtered <- df %>% filter(!is.na(term_spread_lag1))
+  
+  # Estimer probit-modellen
+  model <- glm(recession ~ term_spread + term_spread_lag1 + mp_rate, 
+               data = df_filtered, 
+               family = binomial(link = "probit"))
+  
+  # Beregn de predikerede sandsynligheder for det specifikke land
+  df$predicted_prob <- predict(model, newdata = df, type = "response")
+  
+  # Runder de predikerede sandsynligheder til 4 decimaler
+  df$predicted_prob <- round(df$predicted_prob, 4)
+  
+  # Opret en ny variabel "Predicted_Y", som angiver om modellen forudsiger recession
+  df$Predicted_Y <- ifelse(df$predicted_prob > 0.3, 1, 0)
+  
+  return(df)
+}
+
+# Anvend funktionen på hver gruppe af lande og gem de predikerede sandsynligheder og den nye variabel
+df_with_preds <- df %>%
+  group_by(country) %>%
+  group_split() %>%
+  lapply(function(group_df) {
+    run_probit(group_df)  # Kald run_probit for hvert land
+  }) %>%
+  bind_rows()  # Kombiner resultaterne til ét dataframe
+
+# Se på de første rækker af resultatet
+df_with_preds
+
+```
+
+
+```{r}
+df_selected <- df_with_preds %>%
+  select(year, country, recession, predicted_prob, Predicted_Y)
+
+df_selected
+```
+
+```{r, warning=FALSE, }
+# Vælg de relevante kolonner
+df_selected <- df_with_preds %>%
+  select(year, country, recession, predicted_prob, Predicted_Y)
+
+# Opdel dataene i separate tabeller baseret på country
+results_by_country <- df_selected %>%
+  group_by(country) %>%
+  group_split()
+
+# Navngiv tabellerne efter landene
+names(results_by_country) <- unique(df_selected$country)
+
+# Udskriv resultatet for et specifikt land, fx Danmark
+results_by_country$Belgium
+results_by_country$Czech
+
+```
